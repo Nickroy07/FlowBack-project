@@ -1,174 +1,131 @@
+/**
+ * Flowback — popup.js
+ * -------------------------------------------------------------
+ * Makes the existing popup interactive using mock data.
+ *
+ * loadMockCapsule() returns a Promise<{ task, tried, next }> on
+ * purpose — when the storage step is built, only its internals
+ * change (swap in chrome.storage.local.get). Every caller stays
+ * the same.
+ * -------------------------------------------------------------
+ */
 
-We are building "Flowback", a Chrome Extension for the iQOO Hackathon 2026 Productivity theme.
+(function () {
+  "use strict";
 
-Already completed:
+  const MOCK_CAPSULE = {
+    task: "Debugging the authentication API",
+    tried: "Checked the JWT token and authorization header.",
+    next: "Inspect the authentication middleware."
+  };
 
-- extension/manifest.json
-- extension/background.js
-- extension/content.js
-- extension/popup/popup.html
-- extension/popup/popup.css
+  const SHARE_MESSAGE = "Team handoff is coming next.";
+  const SHARE_MESSAGE_DURATION_MS = 2500;
 
-NOW CREATE ONLY:
+  let els = null;
+  let shareMessageTimeoutId = null;
+  let originalPrivacyText = "";
 
-`extension/popup/popup.js`
+  // ---- DOM lookup (cached once in init, checked before every use) ----
 
-Do NOT modify any other file.
+  function getElements() {
+    return {
+      task: document.getElementById("task"),
+      tried: document.getElementById("tried"),
+      next: document.getElementById("next"),
+      resumeBtn: document.getElementById("resumeBtn"),
+      shareBtn: document.getElementById("shareBtn"),
+      heroTitle: document.querySelector(".hero-title"),
+      heroSubtext: document.querySelector(".hero-subtext"),
+      privacyNote: document.querySelector(".privacy-note")
+    };
+  }
 
-==================================================
-CURRENT GOAL
-==================================================
+  // ---- Data ----
 
-Make the existing Flowback popup interactive.
+  function loadMockCapsule() {
+    // TODO(storage step): replace this with chrome.storage.local.get(...)
+    // and resolve the same { task, tried, next } shape.
+    return Promise.resolve({ ...MOCK_CAPSULE });
+  }
 
-The popup currently contains:
+  // ---- Rendering ----
 
-- Task section with id="task"
-- Tried section with id="tried"
-- Next section with id="next"
-- Resume Work button with id="resumeBtn"
-- Share With Teammate button with id="shareBtn"
+  function setText(el, value) {
+    if (!el) return;
+    el.textContent = value && String(value).trim() ? value : "—";
+  }
 
-Use these existing elements.
+  function renderCapsule(capsule) {
+    if (!capsule) return;
+    setText(els.task, capsule.task);
+    setText(els.tried, capsule.tried);
+    setText(els.next, capsule.next);
+  }
 
-==================================================
-MOCK DATA
-==================================================
+  // ---- Resume Work ----
 
-For now, use temporary mock data:
+  function handleResume() {
+    if (!els.resumeBtn || els.resumeBtn.disabled) return;
 
-Task:
-"Debugging the authentication API"
+    // TODO(storage step): clear the saved capsule from chrome.storage.local
+    // here once real storage is wired up. Mock data only for now.
 
-Tried:
-"Checked the JWT token and authorization header."
+    setText(els.heroTitle, "Context restored.");
+    setText(els.heroSubtext, "You're back where you left off.");
 
-Next:
-"Inspect the authentication middleware."
+    els.resumeBtn.disabled = true;
+    els.resumeBtn.textContent = "Resumed";
+    els.resumeBtn.classList.add("is-complete");
+    els.resumeBtn.setAttribute("aria-label", "Context resumed");
+  }
 
-On popup load, display this data in the appropriate elements.
+  // ---- Share With Teammate ----
 
-IMPORTANT:
+  function handleShare() {
+    if (!els.shareBtn || !els.privacyNote) return;
 
-Keep the code structured so that later we can replace the mock data with real data coming from Chrome Storage.
+    if (shareMessageTimeoutId === null) {
+      originalPrivacyText = els.privacyNote.textContent;
+    } else {
+      clearTimeout(shareMessageTimeoutId);
+    }
 
-==================================================
-RESUME WORK BUTTON
-==================================================
+    els.privacyNote.textContent = SHARE_MESSAGE;
 
-When the user clicks:
+    shareMessageTimeoutId = setTimeout(() => {
+      setText(els.privacyNote, originalPrivacyText);
+      shareMessageTimeoutId = null;
+    }, SHARE_MESSAGE_DURATION_MS);
+  }
 
-"Resume Work"
+  // ---- Init ----
 
-do NOT close the popup immediately.
+  function init() {
+    els = getElements();
 
-Instead:
+    if (els.privacyNote) {
+      els.privacyNote.setAttribute("aria-live", "polite");
+    }
 
-1. Change the UI into a success/resume state.
-2. Show:
+    loadMockCapsule()
+      .then(renderCapsule)
+      .catch((err) => {
+        console.log("[Flowback] Failed to load capsule:", err && err.message);
+      });
 
-"Context restored."
+    if (els.resumeBtn) {
+      els.resumeBtn.addEventListener("click", handleResume);
+    } else {
+      console.log("[Flowback] resumeBtn not found in popup.html");
+    }
 
-and:
+    if (els.shareBtn) {
+      els.shareBtn.addEventListener("click", handleShare);
+    } else {
+      console.log("[Flowback] shareBtn not found in popup.html");
+    }
+  }
 
-"You're back where you left off."
-
-3. Disable the Resume Work button after clicking.
-4. Keep the UI polished and consistent with the existing CSS.
-
-For now, do NOT actually delete Chrome Storage because storage integration will be implemented in the next step.
-
-==================================================
-SHARE BUTTON
-==================================================
-
-When the user clicks:
-
-"Share With Teammate"
-
-show a small non-intrusive message:
-
-"Team handoff is coming next."
-
-Do NOT implement Firebase.
-Do NOT implement networking.
-
-==================================================
-CODE QUALITY
-==================================================
-
-Use vanilla JavaScript only.
-
-No React.
-No external libraries.
-No CDN.
-No TypeScript.
-
-Use:
-
-DOMContentLoaded
-
-and safely check that DOM elements exist before accessing them.
-
-Keep the code modular.
-
-Create small functions such as:
-
-- loadMockCapsule()
-- renderCapsule()
-- handleResume()
-- handleShare()
-
-Avoid unnecessary complexity.
-
-==================================================
-FUTURE COMPATIBILITY
-==================================================
-
-Design the code so the next step can easily replace:
-
-mock capsule data
-
-with:
-
-chrome.storage.local
-
-data.
-
-For example, use a data object with:
-
-{
-  task: "...",
-  tried: "...",
-  next: "..."
-}
-
-Do not implement Chrome Storage yet.
-
-==================================================
-IMPORTANT
-==================================================
-
-Do NOT:
-
-- call an AI API
-- call Firebase
-- modify background.js
-- modify content.js
-- implement authentication
-- implement teammate networking
-- implement real storage deletion
-
-Only make popup.js functional with mock data.
-
-==================================================
-OUTPUT
-==================================================
-
-Give me:
-
-1. Complete `popup.js`
-2. Very short explanation
-3. Exact location where the file should be placed
-
-Nothing else.
+  document.addEventListener("DOMContentLoaded", init);
+})();
