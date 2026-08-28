@@ -1,32 +1,29 @@
 /**
  * Flowback — popup.js
  * -------------------------------------------------------------
- * Makes the existing popup interactive using mock data.
- *
- * loadMockCapsule() returns a Promise<{ task, tried, next }> on
- * purpose — when the storage step is built, only its internals
- * change (swap in chrome.storage.local.get). Every caller stays
- * the same.
+ * Reads the single, real interruption capsule saved by background.js.
+ * Captured fields are displayed as raw context; AI reconstruction is
+ * intentionally out of scope for this step.
  * -------------------------------------------------------------
  */
 
 (function () {
   "use strict";
 
-  const MOCK_CAPSULE = {
-    task: "Debugging the authentication API",
-    tried: "Checked the JWT token and authorization header.",
-    next: "Inspect the authentication middleware."
-  };
-
+  const CAPSULE_STORAGE_KEY = "activeCapsule";
+  const FALLBACK_NEXT = "AI reconstruction coming next.";
+  const EMPTY_TITLE = "No saved context";
+  const EMPTY_MESSAGE = "Flowback hasn't captured an interruption yet.";
   const SHARE_MESSAGE = "Team handoff is coming next.";
+  const STORAGE_ERROR_MESSAGE = "Couldn't load saved context. Try opening Flowback again.";
+  const REMOVE_ERROR_MESSAGE = "Context restored, but the saved context couldn't be cleared.";
   const SHARE_MESSAGE_DURATION_MS = 2500;
+  const MAX_DISPLAY_LENGTH = 700;
 
   let els = null;
-  let shareMessageTimeoutId = null;
+  let activeCapsule = null;
+  let messageTimeoutId = null;
   let originalPrivacyText = "";
-
-  // ---- DOM lookup (cached once in init, checked before every use) ----
 
   function getElements() {
     return {
@@ -37,69 +34,184 @@
       shareBtn: document.getElementById("shareBtn"),
       heroTitle: document.querySelector(".hero-title"),
       heroSubtext: document.querySelector(".hero-subtext"),
-      privacyNote: document.querySelector(".privacy-note")
+      privacyNote: document.querySelector(".privacy-note"),
+      statusText: document.querySelector(".status-text")
     };
   }
 
-  // ---- Data ----
-
-  function loadMockCapsule() {
-    // TODO(storage step): replace this with chrome.storage.local.get(...)
-    // and resolve the same { task, tried, next } shape.
-    return Promise.resolve({ ...MOCK_CAPSULE });
+  function setText(el, value, fallback) {
+    if (!el) return;
+    const text = typeof value === "string" ? value.trim() : "";
+    el.textContent = text || fallback;
   }
 
-  // ---- Rendering ----
+  function normalizeText(value, limit) {
+    if (typeof value !== "string") return "";
 
-  function setText(el, value) {
-    if (!el) return;
-    el.textContent = value && String(value).trim() ? value : "—";
+    const text = value.replace(/\s+/g, " ").trim();
+    if (!text) return "";
+
+    return text.length > limit ? `${text.slice(0, limit - 1).trimEnd()}…` : text;
+  }
+
+  function isUsableCapsule(capsule) {
+    if (!capsule || typeof capsule !== "object" || Array.isArray(capsule)) {
+      return false;
+    }
+
+    return [
+      capsule.title,
+      capsule.url,
+      capsule.selectedText,
+      capsule.visibleText,
+      capsule.focusedElement,
+      capsule.inputContext
+    ].some((value) => normalizeText(value, MAX_DISPLAY_LENGTH));
+  }
+
+  function getTaskText(capsule) {
+    return normalizeText(capsule.selectedText, MAX_DISPLAY_LENGTH) ||
+      normalizeText(capsule.title, MAX_DISPLAY_LENGTH) ||
+      normalizeText(capsule.url, MAX_DISPLAY_LENGTH) ||
+      "Captured page context";
+  }
+
+  function getTriedText(capsule) {
+    return normalizeText(capsule.selectedText, MAX_DISPLAY_LENGTH) ||
+      normalizeText(capsule.inputContext, MAX_DISPLAY_LENGTH) ||
+      normalizeText(capsule.visibleText, MAX_DISPLAY_LENGTH) ||
+      normalizeText(capsule.focusedElement, MAX_DISPLAY_LENGTH) ||
+      "No additional captured context.";
+  }
+
+  function setResumeAvailable(isAvailable) {
+    if (!els.resumeBtn) return;
+
+    els.resumeBtn.disabled = !isAvailable;
+    els.resumeBtn.textContent = isAvailable ? "Resume Work" : "No Context Saved";
+    els.resumeBtn.setAttribute(
+      "aria-label",
+      isAvailable ? "Resume work" : "No saved context available to resume"
+    );
   }
 
   function renderCapsule(capsule) {
-    if (!capsule) return;
-    setText(els.task, capsule.task);
-    setText(els.tried, capsule.tried);
-    setText(els.next, capsule.next);
+    activeCapsule = capsule;
+
+    setText(els.heroTitle, "Pick up where you left off.", EMPTY_TITLE);
+    setText(els.heroSubtext, "Your train of thought is still here.", EMPTY_MESSAGE);
+    setText(els.statusText, "Context preserved", "Context preserved");
+    setText(els.task, getTaskText(capsule), "—");
+    setText(els.tried, getTriedText(capsule), "—");
+    setText(els.next, FALLBACK_NEXT, "—");
+    setResumeAvailable(true);
   }
 
-  // ---- Resume Work ----
+  function renderEmptyState(message) {
+    activeCapsule = null;
 
-  function handleResume() {
-    if (!els.resumeBtn || els.resumeBtn.disabled) return;
-
-    // TODO(storage step): clear the saved capsule from chrome.storage.local
-    // here once real storage is wired up. Mock data only for now.
-
-    setText(els.heroTitle, "Context restored.");
-    setText(els.heroSubtext, "You're back where you left off.");
-
-    els.resumeBtn.disabled = true;
-    els.resumeBtn.textContent = "Resumed";
-    els.resumeBtn.classList.add("is-complete");
-    els.resumeBtn.setAttribute("aria-label", "Context resumed");
+    setText(els.heroTitle, EMPTY_TITLE, EMPTY_TITLE);
+    setText(els.heroSubtext, message || EMPTY_MESSAGE, EMPTY_MESSAGE);
+    setText(els.statusText, "No saved context", "No saved context");
+    setText(els.task, EMPTY_TITLE, "—");
+    setText(els.tried, message || EMPTY_MESSAGE, "—");
+    setText(els.next, "—", "—");
+    setResumeAvailable(false);
   }
 
-  // ---- Share With Teammate ----
+  function getStoredCapsule() {
+    return new Promise((resolve, reject) => {
+      chrome.storage.local.get(CAPSULE_STORAGE_KEY, (result) => {
+        if (chrome.runtime.lastError) {
+          reject(new Error(chrome.runtime.lastError.message));
+          return;
+        }
 
-  function handleShare() {
-    if (!els.shareBtn || !els.privacyNote) return;
+        resolve(result ? result[CAPSULE_STORAGE_KEY] : null);
+      });
+    });
+  }
 
-    if (shareMessageTimeoutId === null) {
+  function removeStoredCapsule() {
+    return new Promise((resolve, reject) => {
+      chrome.storage.local.remove(CAPSULE_STORAGE_KEY, () => {
+        if (chrome.runtime.lastError) {
+          reject(new Error(chrome.runtime.lastError.message));
+          return;
+        }
+
+        resolve();
+      });
+    });
+  }
+
+  async function loadCapsule() {
+    try {
+      const capsule = await getStoredCapsule();
+
+      if (!isUsableCapsule(capsule)) {
+        renderEmptyState();
+        return;
+      }
+
+      renderCapsule(capsule);
+    } catch (error) {
+      console.warn("[Flowback] Failed to load activeCapsule:", error);
+      renderEmptyState(STORAGE_ERROR_MESSAGE);
+    }
+  }
+
+  function renderResumeSuccess() {
+    setText(els.heroTitle, "Context restored.", "Context restored.");
+    setText(
+      els.heroSubtext,
+      "You're back where you left off.",
+      "You're back where you left off."
+    );
+
+    if (els.resumeBtn) {
+      els.resumeBtn.disabled = true;
+      els.resumeBtn.textContent = "Resumed";
+      els.resumeBtn.classList.add("is-complete");
+      els.resumeBtn.setAttribute("aria-label", "Context resumed");
+    }
+  }
+
+  async function handleResume() {
+    if (!activeCapsule || !els.resumeBtn || els.resumeBtn.disabled) return;
+
+    // Only a deliberate Resume Work action can remove the active capsule.
+    renderResumeSuccess();
+
+    try {
+      await removeStoredCapsule();
+      activeCapsule = null;
+    } catch (error) {
+      console.warn("[Flowback] Failed to remove activeCapsule:", error);
+      showTransientMessage(REMOVE_ERROR_MESSAGE);
+    }
+  }
+
+  function showTransientMessage(message) {
+    if (!els.privacyNote) return;
+
+    if (messageTimeoutId === null) {
       originalPrivacyText = els.privacyNote.textContent;
     } else {
-      clearTimeout(shareMessageTimeoutId);
+      clearTimeout(messageTimeoutId);
     }
 
-    els.privacyNote.textContent = SHARE_MESSAGE;
+    els.privacyNote.textContent = message;
 
-    shareMessageTimeoutId = setTimeout(() => {
-      setText(els.privacyNote, originalPrivacyText);
-      shareMessageTimeoutId = null;
+    messageTimeoutId = setTimeout(() => {
+      setText(els.privacyNote, originalPrivacyText, "");
+      messageTimeoutId = null;
     }, SHARE_MESSAGE_DURATION_MS);
   }
 
-  // ---- Init ----
+  function handleShare() {
+    showTransientMessage(SHARE_MESSAGE);
+  }
 
   function init() {
     els = getElements();
@@ -108,23 +220,15 @@
       els.privacyNote.setAttribute("aria-live", "polite");
     }
 
-    loadMockCapsule()
-      .then(renderCapsule)
-      .catch((err) => {
-        console.log("[Flowback] Failed to load capsule:", err && err.message);
-      });
-
     if (els.resumeBtn) {
       els.resumeBtn.addEventListener("click", handleResume);
-    } else {
-      console.log("[Flowback] resumeBtn not found in popup.html");
     }
 
     if (els.shareBtn) {
       els.shareBtn.addEventListener("click", handleShare);
-    } else {
-      console.log("[Flowback] shareBtn not found in popup.html");
     }
+
+    loadCapsule();
   }
 
   document.addEventListener("DOMContentLoaded", init);
