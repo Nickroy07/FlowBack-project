@@ -1,9 +1,11 @@
 /**
  * Flowback — popup.js
  * -------------------------------------------------------------
- * Reads the single, real interruption capsule saved by background.js.
- * Captured fields are displayed as raw context; AI reconstruction is
- * intentionally out of scope for this step.
+ * Reads the single interruption capsule saved by background.js.
+ * Now supports AI reconstruction:
+ * - If activeCapsule.ai exists, display TASK/TRIED/NEXT from AI
+ * - If not, fall back to raw context (existing behavior)
+ * - Handles AI failure gracefully
  * -------------------------------------------------------------
  */
 
@@ -11,7 +13,7 @@
   "use strict";
 
   const CAPSULE_STORAGE_KEY = "activeCapsule";
-  const FALLBACK_NEXT = "AI reconstruction coming next.";
+  const FALLBACK_NEXT = "Resume from your captured context";
   const EMPTY_TITLE = "No saved context";
   const EMPTY_MESSAGE = "Flowback hasn't captured an interruption yet.";
   const SHARE_MESSAGE = "Team handoff is coming next.";
@@ -19,6 +21,13 @@
   const REMOVE_ERROR_MESSAGE = "Context restored, but the saved context couldn't be cleared.";
   const SHARE_MESSAGE_DURATION_MS = 2500;
   const MAX_DISPLAY_LENGTH = 700;
+
+  // Fallback AI messages when reconstruction unavailable
+  const AI_UNAVAILABLE = {
+    task: "Captured context available",
+    tried: "AI reconstruction unavailable",
+    next: "Resume from your captured context"
+  };
 
   let els = null;
   let activeCapsule = null;
@@ -59,7 +68,8 @@
       return false;
     }
 
-    return [
+    // Capsule is usable if it has raw context OR AI context
+    const hasRaw = [
       capsule.title,
       capsule.url,
       capsule.selectedText,
@@ -67,9 +77,29 @@
       capsule.focusedElement,
       capsule.inputContext
     ].some((value) => normalizeText(value, MAX_DISPLAY_LENGTH));
+
+    const hasAI = isValidAI(capsule.ai);
+
+    return hasRaw || hasAI;
+  }
+
+  function isValidAI(ai) {
+    return (
+      ai &&
+      typeof ai === 'object' &&
+      typeof ai.task === 'string' && ai.task.trim().length > 0 &&
+      typeof ai.tried === 'string' && ai.tried.trim().length > 0 &&
+      typeof ai.next === 'string' && ai.next.trim().length > 0
+    );
   }
 
   function getTaskText(capsule) {
+    // If AI exists, use it
+    if (isValidAI(capsule.ai)) {
+      return normalizeText(capsule.ai.task, MAX_DISPLAY_LENGTH) || "Captured context available";
+    }
+
+    // Fallback to raw context
     return normalizeText(capsule.selectedText, MAX_DISPLAY_LENGTH) ||
       normalizeText(capsule.title, MAX_DISPLAY_LENGTH) ||
       normalizeText(capsule.url, MAX_DISPLAY_LENGTH) ||
@@ -77,11 +107,23 @@
   }
 
   function getTriedText(capsule) {
+    if (isValidAI(capsule.ai)) {
+      return normalizeText(capsule.ai.tried, MAX_DISPLAY_LENGTH) || "AI reconstruction unavailable";
+    }
+
     return normalizeText(capsule.selectedText, MAX_DISPLAY_LENGTH) ||
       normalizeText(capsule.inputContext, MAX_DISPLAY_LENGTH) ||
       normalizeText(capsule.visibleText, MAX_DISPLAY_LENGTH) ||
       normalizeText(capsule.focusedElement, MAX_DISPLAY_LENGTH) ||
       "No additional captured context.";
+  }
+
+  function getNextText(capsule) {
+    if (isValidAI(capsule.ai)) {
+      return normalizeText(capsule.ai.next, MAX_DISPLAY_LENGTH) || FALLBACK_NEXT;
+    }
+
+    return FALLBACK_NEXT;
   }
 
   function setResumeAvailable(isAvailable) {
@@ -98,12 +140,26 @@
   function renderCapsule(capsule) {
     activeCapsule = capsule;
 
-    setText(els.heroTitle, "Pick up where you left off.", EMPTY_TITLE);
-    setText(els.heroSubtext, "Your train of thought is still here.", EMPTY_MESSAGE);
-    setText(els.statusText, "Context preserved", "Context preserved");
+    const hasAI = isValidAI(capsule.ai);
+    const isFallbackAI = hasAI && capsule.ai.tried === AI_UNAVAILABLE.tried;
+
+    if (hasAI && !isFallbackAI) {
+      setText(els.heroTitle, "Pick up where you left off.", EMPTY_TITLE);
+      setText(els.heroSubtext, "AI reconstructed your working memory.", EMPTY_MESSAGE);
+      setText(els.statusText, "AI • Context preserved", "Context preserved");
+    } else if (hasAI && isFallbackAI) {
+      setText(els.heroTitle, "Pick up where you left off.", EMPTY_TITLE);
+      setText(els.heroSubtext, "Your train of thought is still here.", EMPTY_MESSAGE);
+      setText(els.statusText, "Context preserved", "Context preserved");
+    } else {
+      setText(els.heroTitle, "Pick up where you left off.", EMPTY_TITLE);
+      setText(els.heroSubtext, "Your train of thought is still here.", EMPTY_MESSAGE);
+      setText(els.statusText, "Context preserved", "Context preserved");
+    }
+
     setText(els.task, getTaskText(capsule), "—");
     setText(els.tried, getTriedText(capsule), "—");
-    setText(els.next, FALLBACK_NEXT, "—");
+    setText(els.next, getNextText(capsule), "—");
     setResumeAvailable(true);
   }
 
@@ -229,6 +285,21 @@
     }
 
     loadCapsule();
+
+    // Listen for storage changes to update popup live when AI enrichment happens
+    if (chrome.storage && chrome.storage.onChanged) {
+      chrome.storage.onChanged.addListener((changes, areaName) => {
+        if (areaName === 'local' && changes[CAPSULE_STORAGE_KEY]) {
+          const newCapsule = changes[CAPSULE_STORAGE_KEY].newValue;
+          if (newCapsule && isUsableCapsule(newCapsule)) {
+            // Only update if we already have a capsule displayed or if new capsule has AI
+            if (activeCapsule || isValidAI(newCapsule.ai)) {
+              renderCapsule(newCapsule);
+            }
+          }
+        }
+      });
+    }
   }
 
   document.addEventListener("DOMContentLoaded", init);

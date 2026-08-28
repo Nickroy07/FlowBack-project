@@ -1,5 +1,5 @@
 // Flowback — background.js
-// Manifest V3 service worker: interruption detection engine.
+// Manifest V3 service worker: interruption detection engine + AI brain integration.
 //
 // Design principle: the service worker can be suspended and restarted
 // at ANY time (Chrome does this aggressively to save memory). So this
@@ -35,6 +35,25 @@ const IGNORED_URL_PREFIXES = [
   'edge://',
   'about:'
 ];
+
+// --- AI Backend Configuration ---
+const BACKEND_URL = 'http://localhost:3000/api/reconstruct';
+const AI_REQUEST_TIMEOUT_MS = 10000; // 10 seconds
+const FALLBACK_AI = {
+  task: "Captured context available",
+  tried: "AI reconstruction unavailable",
+  next: "Resume from your captured context"
+};
+
+// Limits before sending to AI (privacy + cost control)
+const AI_LIMITS = {
+  title: 500,
+  url: 2000,
+  selectedText: 1500,
+  visibleText: 3500,
+  focusedElement: 300,
+  inputContext: 1500
+};
 
 // In-memory cache of state, ONLY used to avoid redundant storage reads
 // within a single still-alive service worker instance. It is never
@@ -136,7 +155,7 @@ async function handleReturn(state) {
   await resetInterruptionState();
 }
 
-// --- Context capture → capsule persistence -----------------------------
+// --- Context capture → capsule persistence + AI -----------------------------
 // Previously a stub. Now actually asks content.js for the captured
 // context via CAPTURE_CONTEXT, then validates it, builds the capsule,
 // and saves it to chrome.storage.local under CAPSULE_STORAGE_KEY.
@@ -208,8 +227,122 @@ function saveActiveCapsule(capsule) {
   });
 }
 
+function truncateForAI(text, maxLength) {
+  if (typeof text !== 'string') return '';
+  const trimmed = text.trim();
+  if (trimmed.length <= maxLength) return trimmed;
+  return trimmed.slice(0, maxLength).trimEnd();
+}
+
+function buildAIPayload(context) {
+  return {
+    title: truncateForAI(context.title || '', AI_LIMITS.title),
+    url: truncateForAI(context.url || '', AI_LIMITS.url),
+    selectedText: truncateForAI(context.selectedText || '', AI_LIMITS.selectedText),
+    visibleText: truncateForAI(context.visibleText || '', AI_LIMITS.visibleText),
+    focusedElement: truncateForAI(context.focusedElement || '', AI_LIMITS.focusedElement),
+    inputContext: truncateForAI(context.inputContext || '', AI_LIMITS.inputContext)
+  };
+}
+
+function isValidAIResponse(ai) {
+  return (
+    ai &&
+    typeof ai === 'object' &&
+    typeof ai.task === 'string' &&
+    typeof ai.tried === 'string' &&
+    typeof ai.next === 'string' &&
+    ai.task.trim() &&
+    ai.tried.trim() &&
+    ai.next.trim()
+  );
+}
+
+async function fetchAIReconstruction(context) {
+  const payload = buildAIPayload(context);
+
+  // Validate payload has at least some content
+  const hasContent = Object.values(payload).some(v => v && v.length > 0);
+  if (!hasContent) {
+    console.log(`${LOG_PREFIX} Empty context, skipping AI call`);
+    return {
+      task: "Not enough context.",
+      tried: "Not enough context.",
+      next: "Not enough context."
+    };
+  }
+
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), AI_REQUEST_TIMEOUT_MS);
+
+  try {
+    console.log(`${LOG_PREFIX} Sending context to AI backend (${BACKEND_URL})`);
+
+    const response = await fetch(BACKEND_URL, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(payload),
+      signal: controller.signal
+    });
+
+    clearTimeout(timeoutId);
+
+    if (!response.ok) {
+      // Try to parse fallback from backend error response
+      try {
+        const errorData = await response.json();
+        if (errorData && errorData.fallback && isValidAIResponse(errorData.fallback)) {
+          console.log(`${LOG_PREFIX} Backend returned fallback AI`);
+          return errorData.fallback;
+        }
+        // If backend returned direct AI result even on error status, use it
+        if (isValidAIResponse(errorData)) {
+          return errorData;
+        }
+      } catch (e) {
+        // Ignore parse error, fall through to fallback
+      }
+
+      console.warn(`${LOG_PREFIX} AI backend error: ${response.status} ${response.statusText}`);
+      throw new Error(`Backend error ${response.status}`);
+    }
+
+    const data = await response.json();
+
+    if (isValidAIResponse(data)) {
+      console.log(`${LOG_PREFIX} AI reconstruction received`);
+      return data;
+    }
+
+    // Backend might wrap result in { fallback } or similar - check
+    if (data && data.fallback && isValidAIResponse(data.fallback)) {
+      console.log(`${LOG_PREFIX} AI fallback received from backend`);
+      return data.fallback;
+    }
+
+    console.warn(`${LOG_PREFIX} Invalid AI response structure`);
+    throw new Error('Invalid AI response');
+
+  } catch (err) {
+    clearTimeout(timeoutId);
+
+    if (err.name === 'AbortError') {
+      console.warn(`${LOG_PREFIX} AI request timed out after ${AI_REQUEST_TIMEOUT_MS}ms`);
+    } else {
+      console.warn(`${LOG_PREFIX} AI request failed: ${err.message}`);
+    }
+
+    // Return null to indicate failure - caller will handle fallback
+    // We intentionally do NOT throw to avoid breaking the main flow
+    return null;
+  }
+}
+
 // Validates the captured context, builds the capsule object in the
 // shape popup.js expects, and persists it as the one active capsule.
+// Now with AI integration: saves raw capsule immediately, then tries AI.
 async function handleCapturedContext(context, tabId) {
   if (!isValidContext(context)) {
     console.warn(`${LOG_PREFIX} Invalid context received, skipping save.`);
@@ -226,12 +359,43 @@ async function handleCapturedContext(context, tabId) {
     visibleText: context.visibleText || '',
     focusedElement: context.focusedElement || '',
     inputContext: context.inputContext || ''
+    // ai field will be added after backend call
   };
 
   try {
+    // Step 1: Save raw capsule immediately so popup works even if AI fails
     await saveActiveCapsule(capsule);
-    console.log(`${LOG_PREFIX} Capsule saved`);
+    console.log(`${LOG_PREFIX} Capsule saved (raw)`);
     console.log(`${LOG_PREFIX} Capsule ID:`, capsule.id);
+
+    // Step 2: Try AI reconstruction (non-blocking for core flow, but we await for capsule update)
+    const aiResult = await fetchAIReconstruction(context);
+
+    if (aiResult && isValidAIResponse(aiResult)) {
+      // Success: update capsule with AI result
+      const enrichedCapsule = {
+        ...capsule,
+        ai: {
+          task: aiResult.task,
+          tried: aiResult.tried,
+          next: aiResult.next
+        }
+      };
+
+      await saveActiveCapsule(enrichedCapsule);
+      console.log(`${LOG_PREFIX} Capsule enriched with AI`);
+    } else {
+      // AI unavailable: save fallback AI so UI shows graceful message
+      // Raw context remains available for debugging
+      const fallbackCapsule = {
+        ...capsule,
+        ai: { ...FALLBACK_AI }
+      };
+
+      await saveActiveCapsule(fallbackCapsule);
+      console.log(`${LOG_PREFIX} Capsule saved with fallback AI (AI unavailable)`);
+    }
+
   } catch (err) {
     console.error(`${LOG_PREFIX} Failed to save capsule`, err);
   }
