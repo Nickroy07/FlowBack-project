@@ -20,6 +20,12 @@ const LOG_PREFIX = '[Flowback]';
 const INTERRUPTION_THRESHOLD_MS = 10 * 1000; // 10 seconds
 const STORAGE_KEY = 'flowbackState';
 
+// Where the single MVP capsule lives. This is chrome.storage.local
+// (persisted to disk, survives browser restart) — deliberately
+// separate from chrome.storage.session above, which only tracks the
+// ephemeral leave/return bookkeeping and is NOT the capsule itself.
+const CAPSULE_STORAGE_KEY = 'activeCapsule';
+
 // Pages we never want to treat as "the working tab" or count as a
 // genuine leave/return (devtools, internal chrome pages, etc.).
 const IGNORED_URL_PREFIXES = [
@@ -130,10 +136,105 @@ async function handleReturn(state) {
   await resetInterruptionState();
 }
 
-// Stub only — actual capture / Resume Card logic is out of scope for
-// this MVP. Wire this up to whatever downstream module needs it.
+// --- Context capture → capsule persistence -----------------------------
+// Previously a stub. Now actually asks content.js for the captured
+// context via CAPTURE_CONTEXT, then validates it, builds the capsule,
+// and saves it to chrome.storage.local under CAPSULE_STORAGE_KEY.
+//
+// Fire-and-forget from handleReturn() on purpose: chrome.tabs.sendMessage
+// is inherently async via its callback, and there's nothing in
+// handleReturn() that needs to wait on the result before it resets the
+// interruption state.
 function requestContextCapture(tabId, durationSec) {
-  console.log(`${LOG_PREFIX} [stub] would capture context for tab ${tabId} after ${durationSec}s`);
+  console.log(`${LOG_PREFIX} Requesting context capture for tab ${tabId} after ${durationSec}s`);
+
+  chrome.tabs.sendMessage(tabId, { type: 'CAPTURE_CONTEXT' }, (response) => {
+    if (chrome.runtime.lastError) {
+      // Content script not present on this page (e.g. it navigated to a
+      // chrome:// page, or hasn't finished injecting) — fail safely.
+      console.warn(`${LOG_PREFIX} Could not reach content script:`, chrome.runtime.lastError.message);
+      return;
+    }
+
+    if (!response) {
+      console.warn(`${LOG_PREFIX} No context received from content script.`);
+      return;
+    }
+
+    console.log(`${LOG_PREFIX} Context received`);
+    handleCapturedContext(response, tabId);
+  });
+}
+
+// Simple unique ID for a capsule — good enough for a single-capsule MVP.
+function generateCapsuleId() {
+  return `capsule_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+}
+
+// Strips query params and URL fragments where practical, per the
+// privacy requirement (e.g. drops ?token=... and #section). Falls back
+// to the raw string rather than throwing on a malformed URL.
+function sanitizeUrl(rawUrl) {
+  try {
+    const parsed = new URL(rawUrl);
+    parsed.search = '';
+    parsed.hash = '';
+    return parsed.toString();
+  } catch (err) {
+    return rawUrl;
+  }
+}
+
+// Minimal shape check so we don't persist garbage if content.js ever
+// responds with something unexpected.
+function isValidContext(context) {
+  return (
+    context &&
+    typeof context === 'object' &&
+    (typeof context.url === 'string' || typeof context.title === 'string')
+  );
+}
+
+// Saves (overwrites) the single MVP capsule in chrome.storage.local.
+function saveActiveCapsule(capsule) {
+  return new Promise((resolve, reject) => {
+    chrome.storage.local.set({ [CAPSULE_STORAGE_KEY]: capsule }, () => {
+      if (chrome.runtime.lastError) {
+        reject(chrome.runtime.lastError);
+        return;
+      }
+      resolve();
+    });
+  });
+}
+
+// Validates the captured context, builds the capsule object in the
+// shape popup.js expects, and persists it as the one active capsule.
+async function handleCapturedContext(context, tabId) {
+  if (!isValidContext(context)) {
+    console.warn(`${LOG_PREFIX} Invalid context received, skipping save.`);
+    return;
+  }
+
+  const capsule = {
+    id: generateCapsuleId(),
+    createdAt: Date.now(),
+    tabId: tabId,
+    title: context.title || '',
+    url: sanitizeUrl(context.url || ''),
+    selectedText: context.selectedText || '',
+    visibleText: context.visibleText || '',
+    focusedElement: context.focusedElement || '',
+    inputContext: context.inputContext || ''
+  };
+
+  try {
+    await saveActiveCapsule(capsule);
+    console.log(`${LOG_PREFIX} Capsule saved`);
+    console.log(`${LOG_PREFIX} Capsule ID:`, capsule.id);
+  } catch (err) {
+    console.error(`${LOG_PREFIX} Failed to save capsule`, err);
+  }
 }
 
 // --- Bootstrap ------------------------------------------------------
