@@ -1,4 +1,3 @@
-
 /**
  * Flowback — content.js
  * -------------------------------------------------------------
@@ -17,7 +16,16 @@
 const MAX_VISIBLE_TEXT_LENGTH = 4000;
 const MAX_INPUT_TEXT_LENGTH = 1000;
 
-// ---- Sensitive-field detection (never capture these) ----
+// Prefer actual page/article content before generic page containers.
+const CONTENT_SELECTORS = [
+  '#mw-content-text .mw-parser-output',
+  '#bodyContent',
+  'article',
+  'main article',
+  '[role="main"] article',
+  'main',
+  '[role="main"]'
+];
 
 function isSensitiveField(el) {
   if (!el) return false;
@@ -31,7 +39,10 @@ function isSensitiveField(el) {
       'cc-number', 'cc-name', 'cc-exp', 'cc-exp-month', 'cc-exp-year',
       'cc-csc', 'cc-type', 'current-password', 'new-password'
     ];
-    if (sensitiveAutocomplete.some((k) => autocomplete.includes(k))) return true;
+
+    if (sensitiveAutocomplete.some((key) => autocomplete.includes(key))) {
+      return true;
+    }
 
     const hints = [
       el.name,
@@ -46,20 +57,17 @@ function isSensitiveField(el) {
       'social security', 'security code', 'cardholder', 'payment', 'pin'
     ];
 
-    return sensitiveKeywords.some((k) => hints.includes(k));
-  } catch (e) {
-    // If we can't tell, err on the side of caution.
+    return sensitiveKeywords.some((key) => hints.includes(key));
+  } catch (error) {
     return true;
   }
 }
-
-// ---- Individual capture helpers (each fails safe, never throws upward) ----
 
 function getSelectedText() {
   try {
     const selection = window.getSelection ? window.getSelection() : null;
     return selection ? selection.toString().trim() : '';
-  } catch (e) {
+  } catch (error) {
     return '';
   }
 }
@@ -68,20 +76,32 @@ function getVisibleText() {
   try {
     if (!document.body) return '';
 
-    // Prefer the main content area over nav/header/footer noise, when present.
-    const container =
-      document.querySelector('main') ||
-      document.querySelector('article') ||
-      document.querySelector('[role="main"]') ||
-      document.body;
+    let text = '';
 
-    let text = container.innerText || container.textContent || '';
-    text = text.replace(/\s+/g, ' ').trim();
+    for (const selector of CONTENT_SELECTORS) {
+      const container = document.querySelector(selector);
+      if (!container) continue;
+
+      const candidate = (container.innerText || container.textContent || '')
+        .replace(/\s+/g, ' ')
+        .trim();
+
+      if (candidate) {
+        text = candidate;
+        break;
+      }
+    }
+
+    if (!text) {
+      text = (document.body.innerText || document.body.textContent || '')
+        .replace(/\s+/g, ' ')
+        .trim();
+    }
 
     return text.length > MAX_VISIBLE_TEXT_LENGTH
       ? text.slice(0, MAX_VISIBLE_TEXT_LENGTH) + '…'
       : text;
-  } catch (e) {
+  } catch (error) {
     return '';
   }
 }
@@ -97,7 +117,7 @@ function describeElement(el) {
       : '';
 
     return `${tag}${id}${classes}`;
-  } catch (e) {
+  } catch (error) {
     return null;
   }
 }
@@ -113,6 +133,7 @@ function getInputContext(el) {
     if (isSensitiveField(el)) return null;
 
     let text = '';
+
     if (tag === 'input' || tag === 'textarea') {
       text = el.value || '';
     } else {
@@ -120,17 +141,16 @@ function getInputContext(el) {
     }
 
     text = text.trim();
+
     if (!text) return '';
 
     return text.length > MAX_INPUT_TEXT_LENGTH
       ? text.slice(0, MAX_INPUT_TEXT_LENGTH) + '…'
       : text;
-  } catch (e) {
+  } catch (error) {
     return null;
   }
 }
-
-// ---- Main capture ----
 
 function captureContext() {
   const context = {
@@ -142,33 +162,32 @@ function captureContext() {
     inputContext: null
   };
 
-  try { context.title = document.title || ''; } catch (e) {}
-  try { context.url = window.location.href || ''; } catch (e) {}
-  try { context.selectedText = getSelectedText(); } catch (e) {}
-  try { context.visibleText = getVisibleText(); } catch (e) {}
+  try { context.title = document.title || ''; } catch (error) {}
+  try { context.url = window.location.href || ''; } catch (error) {}
+  try { context.selectedText = getSelectedText(); } catch (error) {}
+  try { context.visibleText = getVisibleText(); } catch (error) {}
 
   let activeEl = null;
-  try { activeEl = document.activeElement; } catch (e) {}
 
-  try { context.focusedElement = describeElement(activeEl); } catch (e) {}
-  try { context.inputContext = getInputContext(activeEl); } catch (e) {}
+  try { activeEl = document.activeElement; } catch (error) {}
+  try { context.focusedElement = describeElement(activeEl); } catch (error) {}
+  try { context.inputContext = getInputContext(activeEl); } catch (error) {}
 
   return context;
 }
 
-// ---- Message listener ----
-
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (!message || message.type !== 'CAPTURE_CONTEXT') {
-    return false; // not for us, don't keep the channel open
+    return false;
   }
 
   try {
     const context = captureContext();
     console.log('[Flowback] Context captured', context);
     sendResponse(context);
-  } catch (e) {
-    console.log('[Flowback] Failed to capture context:', e && e.message);
+  } catch (error) {
+    console.log('[Flowback] Failed to capture context:', error && error.message);
+
     sendResponse({
       title: '',
       url: '',
@@ -180,7 +199,5 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     });
   }
 
-  // Everything above is synchronous, so sendResponse has already fired.
-  // No need to `return true` (that's only for async responses).
   return false;
 });
