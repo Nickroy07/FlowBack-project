@@ -1,201 +1,234 @@
 /**
  * Flowback — popup.js
- * -------------------------------------------------------------
- * Reads the single interruption capsule saved by background.js.
- * Now supports AI reconstruction:
- * - If activeCapsule.ai exists, display TASK/TRIED/NEXT from AI
- * - If not, fall back to raw context (existing behavior)
- * - Handles AI failure gracefully
- * -------------------------------------------------------------
+ * Polished MVP: reliable storage, real resume, works without AI
+ * Handles all UX states: empty, captured, restoring, success, error
  */
 
 (function () {
   "use strict";
 
-  const CAPSULE_STORAGE_KEY = "activeCapsule";
-  const FALLBACK_NEXT = "Resume from your captured context";
-  const EMPTY_TITLE = "No saved context";
-  const EMPTY_MESSAGE = "Flowback hasn't captured an interruption yet.";
-  const SHARE_MESSAGE = "Team handoff is coming next.";
-  const STORAGE_ERROR_MESSAGE = "Couldn't load saved context. Try opening Flowback again.";
-  const REMOVE_ERROR_MESSAGE = "Context restored, but the saved context couldn't be cleared.";
-  const SHARE_MESSAGE_DURATION_MS = 2500;
-  const MAX_DISPLAY_LENGTH = 700;
+  const CAPSULE_KEY = "activeCapsule";
+  const MAX_DISPLAY = 600;
 
-  // Fallback AI messages when reconstruction unavailable
-  const AI_UNAVAILABLE = {
-    task: "Captured context available",
-    tried: "AI reconstruction unavailable",
-    next: "Resume from your captured context"
+  // UI States
+  const STATES = {
+    EMPTY: 'empty',
+    CAPTURED: 'captured',
+    RESTORING: 'restoring',
+    SUCCESS: 'success',
+    ERROR: 'error'
   };
 
   let els = null;
   let activeCapsule = null;
-  let messageTimeoutId = null;
-  let originalPrivacyText = "";
+  let currentState = STATES.EMPTY;
 
   function getElements() {
     return {
-      task: document.getElementById("task"),
-      tried: document.getElementById("tried"),
-      next: document.getElementById("next"),
-      resumeBtn: document.getElementById("resumeBtn"),
-      shareBtn: document.getElementById("shareBtn"),
-      heroTitle: document.querySelector(".hero-title"),
-      heroSubtext: document.querySelector(".hero-subtext"),
-      privacyNote: document.querySelector(".privacy-note"),
-      statusText: document.querySelector(".status-text")
+      // Header
+      statusBadge: document.getElementById('statusBadge'),
+      statusText: document.querySelector('.status-text'),
+      
+      // States
+      emptyState: document.getElementById('emptyState'),
+      capturedState: document.getElementById('capturedState'),
+      restoringState: document.getElementById('restoringState'),
+      successState: document.getElementById('successState'),
+      errorState: document.getElementById('errorState'),
+      
+      // Captured
+      metaSite: document.getElementById('metaSite'),
+      metaTime: document.getElementById('metaTime'),
+      contextTitle: document.getElementById('contextTitle'),
+      contextUrl: document.getElementById('contextUrl'),
+      task: document.getElementById('task'),
+      tried: document.getElementById('tried'),
+      next: document.getElementById('next'),
+      aiNotice: document.getElementById('aiNotice'),
+      aiNoticeText: document.getElementById('aiNoticeText'),
+      
+      // Actions
+      resumeBtn: document.getElementById('resumeBtn'),
+      dismissBtn: document.getElementById('dismissBtn'),
+      retryBtn: document.getElementById('retryBtn'),
+      openUrlBtn: document.getElementById('openUrlBtn'),
+      
+      // Error
+      errorTitle: document.getElementById('errorTitle'),
+      errorSubtext: document.getElementById('errorSubtext')
     };
   }
 
-  function setText(el, value, fallback) {
+  function setText(el, value, fallback = '—') {
     if (!el) return;
-    const text = typeof value === "string" ? value.trim() : "";
+    const text = typeof value === 'string' ? value.trim() : '';
     el.textContent = text || fallback;
   }
 
-  function normalizeText(value, limit) {
-    if (typeof value !== "string") return "";
-
-    const text = value.replace(/\s+/g, " ").trim();
-    if (!text) return "";
-
-    return text.length > limit ? `${text.slice(0, limit - 1).trimEnd()}…` : text;
+  function normalizeText(value, limit = MAX_DISPLAY) {
+    if (typeof value !== 'string') return '';
+    const text = value.replace(/\s+/g, ' ').trim();
+    if (!text) return '';
+    return text.length > limit ? text.slice(0, limit - 1).trimEnd() + '…' : text;
   }
 
-  function isUsableCapsule(capsule) {
-    if (!capsule || typeof capsule !== "object" || Array.isArray(capsule)) {
+  function formatTimeSince(timestamp) {
+    if (!timestamp) return 'Just now';
+    const diff = Date.now() - timestamp;
+    const seconds = Math.floor(diff / 1000);
+    if (seconds < 60) return 'Just now';
+    const minutes = Math.floor(seconds / 60);
+    if (minutes < 60) return `${minutes}m ago`;
+    const hours = Math.floor(minutes / 60);
+    if (hours < 24) return `${hours}h ago`;
+    const days = Math.floor(hours / 24);
+    return `${days}d ago`;
+  }
+
+  function getDomain(url) {
+    try {
+      return new URL(url).hostname.replace('www.', '');
+    } catch {
+      return 'Web page';
+    }
+  }
+
+  function isValidCapsule(capsule) {
+    if (!capsule || typeof capsule !== 'object' || Array.isArray(capsule)) return false;
+    
+    // Check expiry (24h)
+    if (capsule.capturedAt && (Date.now() - capsule.capturedAt > 24 * 60 * 60 * 1000)) {
       return false;
     }
 
-    // Capsule is usable if it has raw context OR AI context
-    const hasRaw = [
+    // Must have at least title or url or task
+    const hasContent = [
       capsule.title,
       capsule.url,
-      capsule.selectedText,
+      capsule.task,
       capsule.visibleText,
-      capsule.focusedElement,
-      capsule.inputContext
-    ].some((value) => normalizeText(value, MAX_DISPLAY_LENGTH));
+      capsule.selectedText
+    ].some(v => typeof v === 'string' && v.trim().length > 0);
 
-    const hasAI = isValidAI(capsule.ai);
-
-    return hasRaw || hasAI;
+    return hasContent;
   }
 
   function isValidAI(ai) {
-    return (
-      ai &&
-      typeof ai === 'object' &&
-      typeof ai.task === 'string' && ai.task.trim().length > 0 &&
-      typeof ai.tried === 'string' && ai.tried.trim().length > 0 &&
-      typeof ai.next === 'string' && ai.next.trim().length > 0
-    );
+    return ai && typeof ai === 'object' &&
+      typeof ai.task === 'string' && ai.task.trim() &&
+      typeof ai.tried === 'string' && ai.tried.trim() &&
+      typeof ai.next === 'string' && ai.next.trim();
   }
 
-  function getTaskText(capsule) {
-    // If AI exists, use it
-    if (isValidAI(capsule.ai)) {
-      return normalizeText(capsule.ai.task, MAX_DISPLAY_LENGTH) || "Captured context available";
+  function showState(state) {
+    currentState = state;
+    
+    // Hide all
+    if (els.emptyState) els.emptyState.hidden = true;
+    if (els.capturedState) els.capturedState.hidden = true;
+    if (els.restoringState) els.restoringState.hidden = true;
+    if (els.successState) els.successState.hidden = true;
+    if (els.errorState) els.errorState.hidden = true;
+
+    // Show requested
+    switch (state) {
+      case STATES.EMPTY:
+        if (els.emptyState) els.emptyState.hidden = false;
+        setText(els.statusText, 'Ready');
+        break;
+      case STATES.CAPTURED:
+        if (els.capturedState) els.capturedState.hidden = false;
+        setText(els.statusText, 'Context captured');
+        break;
+      case STATES.RESTORING:
+        if (els.restoringState) els.restoringState.hidden = false;
+        setText(els.statusText, 'Restoring…');
+        break;
+      case STATES.SUCCESS:
+        if (els.successState) els.successState.hidden = false;
+        setText(els.statusText, 'Restored');
+        break;
+      case STATES.ERROR:
+        if (els.errorState) els.errorState.hidden = false;
+        setText(els.statusText, 'Error');
+        break;
     }
-
-    // Fallback to raw context
-    return normalizeText(capsule.selectedText, MAX_DISPLAY_LENGTH) ||
-      normalizeText(capsule.title, MAX_DISPLAY_LENGTH) ||
-      normalizeText(capsule.url, MAX_DISPLAY_LENGTH) ||
-      "Captured page context";
   }
 
-  function getTriedText(capsule) {
-    if (isValidAI(capsule.ai)) {
-      return normalizeText(capsule.ai.tried, MAX_DISPLAY_LENGTH) || "AI reconstruction unavailable";
-    }
-
-    return normalizeText(capsule.selectedText, MAX_DISPLAY_LENGTH) ||
-      normalizeText(capsule.inputContext, MAX_DISPLAY_LENGTH) ||
-      normalizeText(capsule.visibleText, MAX_DISPLAY_LENGTH) ||
-      normalizeText(capsule.focusedElement, MAX_DISPLAY_LENGTH) ||
-      "No additional captured context.";
-  }
-
-  function getNextText(capsule) {
-    if (isValidAI(capsule.ai)) {
-      return normalizeText(capsule.ai.next, MAX_DISPLAY_LENGTH) || FALLBACK_NEXT;
-    }
-
-    return FALLBACK_NEXT;
-  }
-
-  function setResumeAvailable(isAvailable) {
-    if (!els.resumeBtn) return;
-
-    els.resumeBtn.disabled = !isAvailable;
-    els.resumeBtn.textContent = isAvailable ? "Resume Work" : "No Context Saved";
-    els.resumeBtn.setAttribute(
-      "aria-label",
-      isAvailable ? "Resume work" : "No saved context available to resume"
-    );
-  }
-
-  function renderCapsule(capsule) {
+  function renderCaptured(capsule) {
     activeCapsule = capsule;
 
-    const hasAI = isValidAI(capsule.ai);
-    const isFallbackAI = hasAI && capsule.ai.tried === AI_UNAVAILABLE.tried;
+    // Meta
+    const domain = getDomain(capsule.url);
+    setText(els.metaSite, domain);
+    setText(els.metaTime, formatTimeSince(capsule.capturedAt || capsule.createdAt));
+    setText(els.contextTitle, normalizeText(capsule.title || capsule.task || 'Untitled', 80) || 'Working context');
+    setText(els.contextUrl, normalizeText(capsule.url, 60) || 'No URL');
 
-    if (hasAI && !isFallbackAI) {
-      setText(els.heroTitle, "Pick up where you left off.", EMPTY_TITLE);
-      setText(els.heroSubtext, "AI reconstructed your working memory.", EMPTY_MESSAGE);
-      setText(els.statusText, "AI • Context preserved", "Context preserved");
-    } else if (hasAI && isFallbackAI) {
-      setText(els.heroTitle, "Pick up where you left off.", EMPTY_TITLE);
-      setText(els.heroSubtext, "Your train of thought is still here.", EMPTY_MESSAGE);
-      setText(els.statusText, "Context preserved", "Context preserved");
-    } else {
-      setText(els.heroTitle, "Pick up where you left off.", EMPTY_TITLE);
-      setText(els.heroSubtext, "Your train of thought is still here.", EMPTY_MESSAGE);
-      setText(els.statusText, "Context preserved", "Context preserved");
+    // Task / Tried / Next - use direct fields (deterministic) or ai fallback
+    const task = capsule.task || (capsule.ai && capsule.ai.task) || 'Working on webpage';
+    const tried = capsule.tried || (capsule.ai && capsule.ai.tried) || 'Reviewed page content';
+    const next = capsule.next || (capsule.ai && capsule.ai.next) || 'Resume where you left off';
+
+    setText(els.task, normalizeText(task, MAX_DISPLAY));
+    setText(els.tried, normalizeText(tried, MAX_DISPLAY));
+    setText(els.next, normalizeText(next, MAX_DISPLAY));
+
+    // AI notice handling
+    if (els.aiNotice && els.aiNoticeText) {
+      const source = capsule.source || 'deterministic';
+      if (source === 'ai') {
+        els.aiNotice.hidden = true;
+      } else if (source === 'deterministic' || !capsule.ai) {
+        // Check if AI was attempted but failed
+        if (capsule.ai && capsule.ai.tried === 'AI reconstruction unavailable') {
+          els.aiNotice.hidden = false;
+          setText(els.aiNoticeText, 'Smart reconstruction unavailable. Using captured context.');
+        } else {
+          els.aiNotice.hidden = false;
+          setText(els.aiNoticeText, 'Using captured context • Works without AI');
+        }
+      } else {
+        els.aiNotice.hidden = true;
+      }
     }
 
-    setText(els.task, getTaskText(capsule), "—");
-    setText(els.tried, getTriedText(capsule), "—");
-    setText(els.next, getNextText(capsule), "—");
-    setResumeAvailable(true);
+    // Enable resume button
+    if (els.resumeBtn) {
+      els.resumeBtn.disabled = false;
+      els.resumeBtn.querySelector('.btn-text').textContent = 'Resume Work';
+    }
+
+    showState(STATES.CAPTURED);
   }
 
-  function renderEmptyState(message) {
+  function renderEmpty(message) {
     activeCapsule = null;
-
-    setText(els.heroTitle, EMPTY_TITLE, EMPTY_TITLE);
-    setText(els.heroSubtext, message || EMPTY_MESSAGE, EMPTY_MESSAGE);
-    setText(els.statusText, "No saved context", "No saved context");
-    setText(els.task, EMPTY_TITLE, "—");
-    setText(els.tried, message || EMPTY_MESSAGE, "—");
-    setText(els.next, "—", "—");
-    setResumeAvailable(false);
+    showState(STATES.EMPTY);
+    if (message) {
+      console.log('[Flowback] Empty state:', message);
+    }
   }
 
   function getStoredCapsule() {
     return new Promise((resolve, reject) => {
-      chrome.storage.local.get(CAPSULE_STORAGE_KEY, (result) => {
+      chrome.storage.local.get(CAPSULE_KEY, (result) => {
         if (chrome.runtime.lastError) {
           reject(new Error(chrome.runtime.lastError.message));
           return;
         }
-
-        resolve(result ? result[CAPSULE_STORAGE_KEY] : null);
+        resolve(result ? result[CAPSULE_KEY] : null);
       });
     });
   }
 
   function removeStoredCapsule() {
     return new Promise((resolve, reject) => {
-      chrome.storage.local.remove(CAPSULE_STORAGE_KEY, () => {
+      chrome.storage.local.remove(CAPSULE_KEY, () => {
         if (chrome.runtime.lastError) {
           reject(new Error(chrome.runtime.lastError.message));
           return;
         }
-
         resolve();
       });
     });
@@ -204,103 +237,215 @@
   async function loadCapsule() {
     try {
       const capsule = await getStoredCapsule();
-
-      if (!isUsableCapsule(capsule)) {
-        renderEmptyState();
+      console.log('[Flowback] Loaded capsule:', capsule ? { id: capsule.id, title: capsule.title?.slice(0, 30), hasTask: !!capsule.task } : null);
+      
+      if (!isValidCapsule(capsule)) {
+        renderEmpty('No valid capsule');
         return;
       }
 
-      renderCapsule(capsule);
+      renderCaptured(capsule);
     } catch (error) {
-      console.warn("[Flowback] Failed to load activeCapsule:", error);
-      renderEmptyState(STORAGE_ERROR_MESSAGE);
+      console.warn('[Flowback] Failed to load capsule:', error);
+      renderEmpty('Load failed');
     }
   }
 
-  function renderResumeSuccess() {
-    setText(els.heroTitle, "Context restored.", "Context restored.");
-    setText(
-      els.heroSubtext,
-      "You're back where you left off.",
-      "You're back where you left off."
-    );
+  // --- Resume Logic - Real functionality ---
+
+  async function handleResume() {
+    if (!activeCapsule) {
+      console.warn('[Flowback] No active capsule to resume');
+      return;
+    }
 
     if (els.resumeBtn) {
       els.resumeBtn.disabled = true;
-      els.resumeBtn.textContent = "Resumed";
-      els.resumeBtn.classList.add("is-complete");
-      els.resumeBtn.setAttribute("aria-label", "Context resumed");
+      els.resumeBtn.querySelector('.btn-text').textContent = 'Restoring…';
+    }
+
+    showState(STATES.RESTORING);
+
+    try {
+      const capsule = activeCapsule;
+      console.log('[Flowback] Attempting resume for:', { tabId: capsule.tabId, url: capsule.url });
+
+      // 1. Check if tab still exists
+      let tabExists = false;
+      let tab = null;
+      
+      if (capsule.tabId) {
+        try {
+          tab = await chrome.tabs.get(capsule.tabId);
+          tabExists = !!tab;
+          console.log('[Flowback] Tab exists:', tabExists, tab ? { id: tab.id, url: tab.url?.slice(0, 50) } : null);
+        } catch (e) {
+          console.log('[Flowback] Tab does not exist:', e.message);
+          tabExists = false;
+        }
+      }
+
+      if (tabExists && tab) {
+        // Tab exists: activate it and focus its window
+        try {
+          if (capsule.windowId && tab.windowId !== capsule.windowId) {
+            await chrome.windows.update(capsule.windowId || tab.windowId, { focused: true });
+          } else {
+            await chrome.windows.update(tab.windowId, { focused: true });
+          }
+          await chrome.tabs.update(capsule.tabId, { active: true });
+          
+          console.log('[Flowback] Tab activated successfully');
+          showState(STATES.SUCCESS);
+          
+          // Clear after successful restore (with small delay for UX)
+          setTimeout(async () => {
+            try {
+              await removeStoredCapsule();
+              activeCapsule = null;
+            } catch (e) {
+              console.warn('[Flowback] Failed to clear after restore:', e);
+            }
+          }, 800);
+          
+          return;
+        } catch (activateErr) {
+          console.warn('[Flowback] Failed to activate tab:', activateErr.message);
+          // Fall through to open URL
+        }
+      }
+
+      // 2. Tab doesn't exist or activation failed: open URL in new tab
+      if (capsule.url) {
+        try {
+          console.log('[Flowback] Opening URL in new tab:', capsule.url);
+          const newTab = await chrome.tabs.create({ url: capsule.url, active: true });
+          
+          // Focus window of new tab
+          if (newTab.windowId) {
+            try {
+              await chrome.windows.update(newTab.windowId, { focused: true });
+            } catch {}
+          }
+          
+          console.log('[Flowback] New tab opened:', newTab.id);
+          showState(STATES.SUCCESS);
+          
+          setTimeout(async () => {
+            try {
+              await removeStoredCapsule();
+              activeCapsule = null;
+            } catch {}
+          }, 800);
+          
+          return;
+        } catch (openErr) {
+          console.error('[Flowback] Failed to open URL:', openErr);
+          throw new Error(`Couldn't open URL: ${openErr.message}`);
+        }
+      }
+
+      throw new Error('No URL to restore');
+
+    } catch (err) {
+      console.error('[Flowback] Resume failed:', err);
+      setText(els.errorTitle, "Couldn't restore workspace");
+      setText(els.errorSubtext, err.message.includes('No URL') ? 
+        'No saved URL found. The context may be expired.' : 
+        'The original tab might be closed. You can still open the URL.');
+      showState(STATES.ERROR);
+      
+      if (els.resumeBtn) {
+        els.resumeBtn.disabled = false;
+        els.resumeBtn.querySelector('.btn-text').textContent = 'Resume Work';
+      }
     }
   }
 
-  async function handleResume() {
-    if (!activeCapsule || !els.resumeBtn || els.resumeBtn.disabled) return;
-
-    // Only a deliberate Resume Work action can remove the active capsule.
-    renderResumeSuccess();
+  async function handleDismiss() {
+    if (!activeCapsule) {
+      renderEmpty();
+      return;
+    }
 
     try {
       await removeStoredCapsule();
       activeCapsule = null;
-    } catch (error) {
-      console.warn("[Flowback] Failed to remove activeCapsule:", error);
-      showTransientMessage(REMOVE_ERROR_MESSAGE);
+      renderEmpty('Dismissed');
+      console.log('[Flowback] Capsule dismissed');
+    } catch (err) {
+      console.warn('[Flowback] Failed to dismiss:', err);
+      renderEmpty();
     }
   }
 
-  function showTransientMessage(message) {
-    if (!els.privacyNote) return;
+  async function handleOpenUrl() {
+    if (!activeCapsule || !activeCapsule.url) {
+      setText(els.errorSubtext, 'No URL saved in this context');
+      return;
+    }
 
-    if (messageTimeoutId === null) {
-      originalPrivacyText = els.privacyNote.textContent;
+    try {
+      await chrome.tabs.create({ url: activeCapsule.url, active: true });
+      showState(STATES.SUCCESS);
+      setTimeout(async () => {
+        try {
+          await removeStoredCapsule();
+        } catch {}
+      }, 500);
+    } catch (err) {
+      setText(els.errorSubtext, `Failed to open URL: ${err.message}`);
+    }
+  }
+
+  function handleRetry() {
+    if (activeCapsule) {
+      renderCaptured(activeCapsule);
     } else {
-      clearTimeout(messageTimeoutId);
+      loadCapsule();
     }
-
-    els.privacyNote.textContent = message;
-
-    messageTimeoutId = setTimeout(() => {
-      setText(els.privacyNote, originalPrivacyText, "");
-      messageTimeoutId = null;
-    }, SHARE_MESSAGE_DURATION_MS);
-  }
-
-  function handleShare() {
-    showTransientMessage(SHARE_MESSAGE);
   }
 
   function init() {
     els = getElements();
 
-    if (els.privacyNote) {
-      els.privacyNote.setAttribute("aria-live", "polite");
-    }
+    // Bind actions
+    if (els.resumeBtn) els.resumeBtn.addEventListener('click', handleResume);
+    if (els.dismissBtn) els.dismissBtn.addEventListener('click', handleDismiss);
+    if (els.retryBtn) els.retryBtn.addEventListener('click', handleRetry);
+    if (els.openUrlBtn) els.openUrlBtn.addEventListener('click', handleOpenUrl);
 
-    if (els.resumeBtn) {
-      els.resumeBtn.addEventListener("click", handleResume);
-    }
-
-    if (els.shareBtn) {
-      els.shareBtn.addEventListener("click", handleShare);
-    }
-
+    // Initial load
     loadCapsule();
 
-    // Listen for storage changes to update popup live when AI enrichment happens
+    // Live updates when background saves new capsule
     if (chrome.storage && chrome.storage.onChanged) {
       chrome.storage.onChanged.addListener((changes, areaName) => {
-        if (areaName === 'local' && changes[CAPSULE_STORAGE_KEY]) {
-          const newCapsule = changes[CAPSULE_STORAGE_KEY].newValue;
-          if (newCapsule && isUsableCapsule(newCapsule)) {
-            // Only update if we already have a capsule displayed or if new capsule has AI
-            if (activeCapsule || isValidAI(newCapsule.ai)) {
-              renderCapsule(newCapsule);
+        if (areaName === 'local' && changes[CAPSULE_KEY]) {
+          const newCapsule = changes[CAPSULE_KEY].newValue;
+          console.log('[Flowback] Storage changed, new capsule:', newCapsule ? 'present' : 'removed');
+          
+          if (!newCapsule) {
+            // Capsule removed (e.g., after resume elsewhere)
+            if (currentState === STATES.CAPTURED) {
+              renderEmpty('Context cleared');
+            }
+            return;
+          }
+
+          if (isValidCapsule(newCapsule)) {
+            // Only auto-update if we're in empty state or already showing a capsule
+            // Don't interrupt restoring/success states
+            if (currentState === STATES.EMPTY || currentState === STATES.CAPTURED) {
+              renderCaptured(newCapsule);
             }
           }
         }
       });
     }
+
+    console.log('[Flowback] Popup initialized, MVP works without AI');
   }
 
-  document.addEventListener("DOMContentLoaded", init);
+  document.addEventListener('DOMContentLoaded', init);
 })();

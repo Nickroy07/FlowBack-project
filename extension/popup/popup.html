@@ -1,4 +1,3 @@
-
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -9,64 +8,126 @@
 </head>
 <body>
   <div class="popup-shell" id="popup">
-
-    <header class="app-header" aria-label="Flowback header">
-      <div class="logo" aria-label="Flowback">
-        <span class="logo-mark" aria-hidden="true"></span>
-        <span class="logo-text">Flowback</span>
+    <header class="app-header">
+      <div class="brand">
+        <div class="logo-mark" aria-hidden="true">
+          <span class="bar bar-short"></span>
+          <span class="bar bar-long"></span>
+        </div>
+        <div class="brand-text">
+          <span class="logo-text">Flowback</span>
+          <span class="tagline">Get back into your flow</span>
+        </div>
       </div>
-
-      <div class="status" role="status" aria-live="polite">
-        <span class="status-dot" aria-hidden="true"></span>
-        <span class="status-text">Context preserved</span>
+      <div class="status-badge" id="statusBadge">
+        <span class="status-dot"></span>
+        <span class="status-text">Ready</span>
       </div>
     </header>
 
-    <main class="app-main" aria-label="Flowback popup content">
-
-      <section class="hero">
-        <h1 class="hero-title">Pick up where you left off.</h1>
-        <p class="hero-subtext">Your train of thought is still here.</p>
-      </section>
-
-      <section class="resume-card" aria-labelledby="resumeCardTitle">
-        <h2 id="resumeCardTitle" class="visually-hidden">Resume card</h2>
-
-        <div class="resume-row">
-          <h3 class="resume-label">Task</h3>
-          <p class="resume-value" id="task">—</p>
+    <main class="app-main">
+      <!-- Empty State -->
+      <section class="empty-state" id="emptyState" hidden>
+        <div class="empty-icon">
+          <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+            <path d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/>
+          </svg>
         </div>
-
-        <div class="resume-row">
-          <h3 class="resume-label">Tried</h3>
-          <p class="resume-value" id="tried">—</p>
-        </div>
-
-        <div class="resume-row">
-          <h3 class="resume-label">Next</h3>
-          <p class="resume-value" id="next">—</p>
+        <h1 class="empty-title">No saved context yet</h1>
+        <p class="empty-subtext">Flowback will capture your work when you step away for more than 10 seconds. Switch tabs, then return to see it in action.</p>
+        <div class="empty-hint">
+          <span class="hint-dot"></span>
+          <span>Work in a tab → Switch away >10s → Return → Resume</span>
         </div>
       </section>
 
-      <div class="actions">
-        <button type="button" id="resumeBtn" class="btn btn-primary" aria-label="Resume work">
-          Resume Work
-        </button>
-        <button type="button" id="shareBtn" class="btn btn-secondary" aria-label="Share with teammate">
-          Share with Teammate
-        </button>
-      </div>
+      <!-- Captured State -->
+      <section class="captured-state" id="capturedState" hidden>
+        <div class="context-header">
+          <div class="context-meta">
+            <span class="meta-site" id="metaSite">—</span>
+            <span class="meta-dot">•</span>
+            <span class="meta-time" id="metaTime">Just now</span>
+          </div>
+          <h2 class="context-title" id="contextTitle">Pick up where you left off</h2>
+          <p class="context-url" id="contextUrl">—</p>
+        </div>
 
-      <p class="privacy-note">
-        Your context is temporary and disappears when you're done.
-      </p>
+        <div class="resume-card" id="resumeCard">
+          <div class="resume-row">
+            <div class="row-header">
+              <span class="row-icon">🎯</span>
+              <span class="resume-label">Task</span>
+            </div>
+            <p class="resume-value" id="task">—</p>
+          </div>
+          <div class="resume-row">
+            <div class="row-header">
+              <span class="row-icon">✓</span>
+              <span class="resume-label">Tried</span>
+            </div>
+            <p class="resume-value" id="tried">—</p>
+          </div>
+          <div class="resume-row row-next">
+            <div class="row-header">
+              <span class="row-icon">→</span>
+              <span class="resume-label">Next</span>
+            </div>
+            <p class="resume-value" id="next">—</p>
+          </div>
+        </div>
 
+        <div class="ai-notice" id="aiNotice" hidden>
+          <span class="notice-icon">ℹ</span>
+          <span class="notice-text" id="aiNoticeText">Using captured context</span>
+        </div>
+
+        <div class="actions">
+          <button type="button" id="resumeBtn" class="btn btn-primary">
+            <span class="btn-icon">↗</span>
+            <span class="btn-text">Resume Work</span>
+          </button>
+          <button type="button" id="dismissBtn" class="btn btn-secondary">
+            Dismiss
+          </button>
+        </div>
+
+        <p class="privacy-note">
+          <span class="privacy-icon">🔒</span>
+          Your context is local and temporary. It disappears when you resume.
+        </p>
+      </section>
+
+      <!-- Restoring State -->
+      <section class="restoring-state" id="restoringState" hidden>
+        <div class="restoring-spinner"></div>
+        <h2 class="restoring-title">Restoring your workspace…</h2>
+        <p class="restoring-subtext">Bringing you back to where you left off</p>
+      </section>
+
+      <!-- Success State -->
+      <section class="success-state" id="successState" hidden>
+        <div class="success-icon">✓</div>
+        <h2 class="success-title">Welcome back</h2>
+        <p class="success-subtext">Your workspace is ready. You can continue working.</p>
+      </section>
+
+      <!-- Error State -->
+      <section class="error-state" id="errorState" hidden>
+        <div class="error-icon">!</div>
+        <h2 class="error-title" id="errorTitle">Couldn't restore workspace</h2>
+        <p class="error-subtext" id="errorSubtext">The original tab might be closed. Try opening the URL manually.</p>
+        <div class="actions">
+          <button type="button" id="retryBtn" class="btn btn-primary">Try Again</button>
+          <button type="button" id="openUrlBtn" class="btn btn-secondary">Open URL</button>
+        </div>
+      </section>
     </main>
 
-    <footer class="app-footer" aria-label="Flowback footer">
-      <p class="footer-text">Flowback · Productivity, without the context reset.</p>
+    <footer class="app-footer">
+      <span class="footer-text">Flowback • Productivity without the context reset</span>
+      <span class="footer-version">v0.2.0 • MVP • Works without AI</span>
     </footer>
-
   </div>
 
   <script src="popup.js" defer></script>
