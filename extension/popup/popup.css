@@ -1,1 +1,401 @@
 
+/* =========================================================
+   Flowback — popup.css
+   Styles the existing popup.html only. No markup, no JS.
+
+   Signature element: the logomark. A short quiet bar (flow),
+   a gap (the interruption), then a brighter longer bar
+   (return) — the same asymmetry echoes in the Resume Card,
+   where NEXT is visually the strongest of the three rows.
+   ========================================================= */
+
+/* ---------- Reset ---------- */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+button {
+  font: inherit;
+  color: inherit;
+  background: none;
+  border: none;
+  cursor: pointer;
+  appearance: none;
+}
+
+/* ---------- Design tokens ---------- */
+
+:root {
+  --background: #0b0e14;
+  --surface: #141926;
+  --surface-hover: #1b2233;
+  --text: #edeff5;
+  --muted: #8991a6;
+  --border: rgba(255, 255, 255, 0.08);
+  --border-strong: rgba(255, 255, 255, 0.16);
+
+  --accent: #6c8cff;
+  --accent-strong: #93aeff;
+  --accent-soft: rgba(108, 140, 255, 0.14);
+  --accent-ink: #0a0d13; /* text placed on top of --accent */
+
+  --radius: 14px;
+  --radius-sm: 10px;
+
+  --shadow-card: 0 16px 32px -18px rgba(0, 0, 0, 0.65);
+  --shadow-ring: 0 0 0 3px var(--accent-soft);
+
+  --font-display: -apple-system, BlinkMacSystemFont, "Segoe UI Variable",
+    "Segoe UI", "SF Pro Display", Roboto, sans-serif;
+  --font-body: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+    sans-serif;
+
+  --ease: cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* ---------- Base ---------- */
+
+html,
+body {
+  width: 400px;
+  background: var(--background);
+}
+
+body {
+  font-family: var(--font-body);
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text);
+  -webkit-font-smoothing: antialiased;
+}
+
+::selection {
+  background: var(--accent-soft);
+  color: var(--text);
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* Visible keyboard focus, everywhere, without a click-triggered ring */
+:focus {
+  outline: none;
+}
+
+:focus-visible {
+  outline: 2px solid var(--accent-strong);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm);
+}
+
+/* ---------- Shell ---------- */
+
+.popup-shell {
+  width: 400px;
+  max-height: 600px;
+  min-height: 500px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+}
+
+/* ---------- Header ---------- */
+
+.app-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 18px;
+  border-bottom: 1px solid var(--border);
+  flex: 0 0 auto;
+}
+
+.logo {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.logo-mark {
+  position: relative;
+  display: inline-block;
+  width: 28px;
+  height: 12px;
+  flex: 0 0 auto;
+}
+
+.logo-mark::before,
+.logo-mark::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  height: 2px;
+  border-radius: 2px;
+  transform: translateY(-50%);
+}
+
+/* "flow" — quiet, short */
+.logo-mark::before {
+  left: 0;
+  width: 8px;
+  background: var(--muted);
+}
+
+/* "return" — brighter, longer: resumption is the emphasis */
+.logo-mark::after {
+  right: 0;
+  width: 14px;
+  background: var(--accent);
+}
+
+.logo-text {
+  font-family: var(--font-display);
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+
+.status {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 10.5px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+}
+
+.status-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 0 0 var(--accent-soft);
+  animation: statusPulse 2.4s var(--ease) infinite;
+}
+
+@keyframes statusPulse {
+  0% {
+    box-shadow: 0 0 0 0 rgba(108, 140, 255, 0.45);
+  }
+  70% {
+    box-shadow: 0 0 0 5px rgba(108, 140, 255, 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(108, 140, 255, 0);
+  }
+}
+
+/* ---------- Main ---------- */
+
+.app-main {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 18px;
+}
+
+/* ---------- Hero ---------- */
+
+.hero-title {
+  font-family: var(--font-display);
+  font-size: 19px;
+  font-weight: 700;
+  letter-spacing: -0.015em;
+  line-height: 1.3;
+  color: var(--text);
+}
+
+.hero-subtext {
+  margin-top: 4px;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+/* ---------- Resume card ---------- */
+
+.resume-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-card);
+  overflow: hidden;
+  animation: cardIn 0.4s var(--ease) both;
+}
+
+@keyframes cardIn {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.resume-row {
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border);
+}
+
+.resume-row:last-child {
+  border-bottom: none;
+  /* NEXT: the strongest row — where the user should continue */
+  background: var(--accent-soft);
+  border-left: 3px solid var(--accent);
+  padding-left: 13px;
+}
+
+.resume-label {
+  font-size: 10.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+}
+
+.resume-row:last-child .resume-label {
+  color: var(--accent-strong);
+}
+
+.resume-value {
+  margin-top: 4px;
+  font-size: 13.5px;
+  font-weight: 500;
+  color: var(--text);
+  line-height: 1.5;
+
+  /* long-text robustness: wrap cleanly, clamp height, never break layout */
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  white-space: pre-wrap;
+  max-height: 4.6em;
+  overflow-y: auto;
+}
+
+.resume-row:last-child .resume-value {
+  font-weight: 600;
+}
+
+.resume-value::-webkit-scrollbar {
+  width: 4px;
+}
+
+.resume-value::-webkit-scrollbar-thumb {
+  background: var(--border-strong);
+  border-radius: 4px;
+}
+
+/* ---------- Actions ---------- */
+
+.actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.btn {
+  width: 100%;
+  padding: 11px 16px;
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+  font-weight: 600;
+  text-align: center;
+  transition: background-color 0.15s var(--ease), border-color 0.15s var(--ease),
+    box-shadow 0.15s var(--ease), transform 0.1s var(--ease);
+}
+
+.btn-primary {
+  background: var(--accent);
+  color: var(--accent-ink);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.btn-primary:hover {
+  background: var(--accent-strong);
+}
+
+.btn-primary:active {
+  transform: scale(0.98);
+}
+
+.btn-secondary {
+  background: transparent;
+  color: var(--text);
+  border: 1px solid var(--border-strong);
+}
+
+.btn-secondary:hover {
+  background: var(--surface-hover);
+  border-color: var(--muted);
+}
+
+.btn-secondary:active {
+  transform: scale(0.98);
+}
+
+/* ---------- Privacy note ---------- */
+
+.privacy-note {
+  text-align: center;
+  font-size: 11.5px;
+  line-height: 1.5;
+  color: var(--muted);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 9px 14px;
+}
+
+/* ---------- Footer ---------- */
+
+.app-footer {
+  flex: 0 0 auto;
+  padding: 12px 18px;
+  border-top: 1px solid var(--border);
+  text-align: center;
+}
+
+.footer-text {
+  font-size: 10.5px;
+  color: var(--muted);
+  letter-spacing: 0.01em;
+}
+
+/* ---------- Motion ---------- */
+
+@media (prefers-reduced-motion: reduce) {
+  .resume-card {
+    animation: none;
+    opacity: 1;
+    transform: none;
+  }
+
+  .status-dot {
+    animation: none;
+  }
+
+  .btn,
+  .btn-primary,
+  .btn-secondary {
+    transition: none;
+  }
+}
