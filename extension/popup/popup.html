@@ -1,1 +1,74 @@
 
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Flowback</title>
+  <link rel="stylesheet" href="popup.css" />
+</head>
+<body>
+  <div class="popup-shell" id="popup">
+
+    <header class="app-header" aria-label="Flowback header">
+      <div class="logo" aria-label="Flowback">
+        <span class="logo-mark" aria-hidden="true"></span>
+        <span class="logo-text">Flowback</span>
+      </div>
+
+      <div class="status" role="status" aria-live="polite">
+        <span class="status-dot" aria-hidden="true"></span>
+        <span class="status-text">Context preserved</span>
+      </div>
+    </header>
+
+    <main class="app-main" aria-label="Flowback popup content">
+
+      <section class="hero">
+        <h1 class="hero-title">Pick up where you left off.</h1>
+        <p class="hero-subtext">Your train of thought is still here.</p>
+      </section>
+
+      <section class="resume-card" aria-labelledby="resumeCardTitle">
+        <h2 id="resumeCardTitle" class="visually-hidden">Resume card</h2>
+
+        <div class="resume-row">
+          <h3 class="resume-label">Task</h3>
+          <p class="resume-value" id="task">—</p>
+        </div>
+
+        <div class="resume-row">
+          <h3 class="resume-label">Tried</h3>
+          <p class="resume-value" id="tried">—</p>
+        </div>
+
+        <div class="resume-row">
+          <h3 class="resume-label">Next</h3>
+          <p class="resume-value" id="next">—</p>
+        </div>
+      </section>
+
+      <div class="actions">
+        <button type="button" id="resumeBtn" class="btn btn-primary" aria-label="Resume work">
+          Resume Work
+        </button>
+        <button type="button" id="shareBtn" class="btn btn-secondary" aria-label="Share with teammate">
+          Share with Teammate
+        </button>
+      </div>
+
+      <p class="privacy-note">
+        Your context is temporary and disappears when you're done.
+      </p>
+
+    </main>
+
+    <footer class="app-footer" aria-label="Flowback footer">
+      <p class="footer-text">Flowback · Productivity, without the context reset.</p>
+    </footer>
+
+  </div>
+
+  <script src="popup.js" defer></script>
+</body>
+</html>
