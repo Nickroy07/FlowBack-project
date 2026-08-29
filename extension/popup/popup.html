@@ -1,0 +1,241 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Flowback</title>
+  <link rel="stylesheet" href="popup.css" />
+</head>
+<body>
+  <div class="popup-shell" id="popup">
+    <!-- Ambient glowing atmospheric background -->
+    <div class="ambient-glow" aria-hidden="true"></div>
+
+    <!-- Header -->
+    <header class="app-header">
+      <div class="brand">
+        <div class="logo-mark" aria-hidden="true">
+          <div class="cyber-orb"></div>
+          <span class="bar bar-short"></span>
+          <span class="bar bar-long"></span>
+        </div>
+        <div class="brand-text">
+          <div class="brand-title-row">
+            <span class="logo-text">Flowback</span>
+            <span class="version-badge">v0.2.0</span>
+          </div>
+          <span class="tagline">Work-Context Recovery System</span>
+        </div>
+      </div>
+      <div class="status-badge" id="statusBadge">
+        <span class="status-dot"></span>
+        <span class="status-text">MONITORING</span>
+      </div>
+    </header>
+
+    <main class="app-main">
+      <!-- Empty / Active Monitoring State -->
+      <section class="empty-state" id="emptyState" hidden>
+        <div class="radar-container" aria-hidden="true">
+          <div class="radar-ring ring-3"></div>
+          <div class="radar-ring ring-2"></div>
+          <div class="radar-ring ring-1"></div>
+          <div class="radar-sweep"></div>
+          <div class="radar-center-dot"></div>
+        </div>
+
+        <div class="empty-content">
+          <div class="empty-status-pill">
+            <span class="pulse-dot"></span>
+            <span>ACTIVE BACKGROUND MONITORING</span>
+          </div>
+          <h1 class="empty-title">Observing Your Work Journey</h1>
+          <p class="empty-subtext">Flowback is tracking tab transitions and active focus. When you return after an interruption (≥10s), your complete working journey and exact pause point will be reconstructed here.</p>
+        </div>
+
+        <div class="empty-guide-card">
+          <div class="guide-header">
+            <span class="guide-icon">⚡</span>
+            <span class="guide-title">HOW IT WORKS</span>
+          </div>
+          <div class="guide-steps">
+            <div class="guide-step">
+              <span class="step-num">1</span>
+              <span class="step-desc">Work across tabs naturally</span>
+            </div>
+            <div class="guide-step">
+              <span class="step-num">2</span>
+              <span class="step-desc">Get interrupted or step away</span>
+            </div>
+            <div class="guide-step">
+              <span class="step-num">3</span>
+              <span class="step-desc">Click Resume to restore tab & scroll</span>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Captured Work-Context Hero State -->
+      <section class="captured-state" id="capturedState" hidden>
+        
+        <!-- Interruption Diagnostics Banner -->
+        <div class="interruption-strip" id="interruptionStrip">
+          <div class="strip-item strip-away">
+            <span class="strip-icon">⏱</span>
+            <span class="strip-label">AWAY:</span>
+            <span class="strip-val" id="metaAway">15s</span>
+          </div>
+          <div class="strip-divider"></div>
+          <div class="strip-item strip-reason">
+            <span class="strip-icon">⚡</span>
+            <span class="strip-val" id="interruptionReasonText">Tab Switch</span>
+          </div>
+          <div class="strip-divider"></div>
+          <div class="strip-item strip-switches">
+            <span class="strip-icon">🔄</span>
+            <span class="strip-val" id="switchCountText">3 switches</span>
+          </div>
+        </div>
+
+        <!-- Primary Target Context Header Card -->
+        <div class="hero-target-card">
+          <div class="target-top-row">
+            <div class="site-tag" id="metaSite">github.com</div>
+            <div class="active-time-tag" id="durationBadge">
+              <span class="time-icon">⏳</span>
+              <span id="totalActiveTime">0s</span> active
+            </div>
+          </div>
+          <h2 class="target-title" id="contextTitle">Pick up where you left off</h2>
+          <div class="target-url-row">
+            <span class="url-icon">🔗</span>
+            <span class="target-url" id="contextUrl">—</span>
+          </div>
+        </div>
+
+        <!-- Work Journey Timeline -->
+        <div class="journey-section" id="journeySection">
+          <div class="section-header-row">
+            <div class="section-title">
+              <span class="section-icon">🌐</span>
+              <span>YOUR WORK JOURNEY</span>
+            </div>
+            <span class="journey-step-count" id="journeyStepCount">3 steps</span>
+          </div>
+          <div class="journey-timeline-card">
+            <div class="journey-timeline" id="journeyTimeline">
+              <!-- Dynamically populated timeline step nodes -->
+            </div>
+          </div>
+        </div>
+
+        <!-- Recovery Summary Cards Grid -->
+        <div class="recovery-grid" id="resumeCard">
+          
+          <div class="recovery-card card-task">
+            <div class="card-header">
+              <div class="card-icon-badge icon-task">🎯</div>
+              <span class="card-label">YOU WERE WORKING ON</span>
+            </div>
+            <p class="card-value" id="task">—</p>
+          </div>
+
+          <div class="recovery-card card-tried">
+            <div class="card-header">
+              <div class="card-icon-badge icon-tried">✓</div>
+              <span class="card-label">WHAT YOU TRIED & REFERENCED</span>
+            </div>
+            <p class="card-value" id="tried">—</p>
+          </div>
+
+          <div class="recovery-card card-left-off">
+            <div class="card-header">
+              <div class="card-icon-badge icon-left-off">🚧</div>
+              <span class="card-label">WHERE YOU LEFT OFF</span>
+            </div>
+            <p class="card-value" id="whereYouLeftOff">—</p>
+          </div>
+
+          <div class="recovery-card card-next">
+            <div class="card-header">
+              <div class="card-icon-badge icon-next">⚡</div>
+              <span class="card-label">RECOMMENDED NEXT STEP</span>
+            </div>
+            <p class="card-value" id="next">—</p>
+          </div>
+
+        </div>
+
+        <!-- AI notice indicator -->
+        <div class="ai-notice" id="aiNotice" hidden>
+          <span class="notice-icon">✨</span>
+          <span class="notice-text" id="aiNoticeText">AI-reconstructed context</span>
+        </div>
+
+        <!-- Sticky Action Buttons -->
+        <div class="actions">
+          <button type="button" id="resumeBtn" class="btn btn-primary">
+            <span class="btn-glow" aria-hidden="true"></span>
+            <span class="btn-icon">↗</span>
+            <span class="btn-text">Resume Work</span>
+            <span class="btn-kbd">↵ Enter</span>
+          </button>
+          <button type="button" id="dismissBtn" class="btn btn-secondary">
+            <span class="btn-text">Dismiss</span>
+            <span class="btn-kbd">Esc</span>
+          </button>
+        </div>
+
+        <div class="privacy-footnote">
+          <span class="privacy-icon">🔒</span>
+          <span>End-to-end local & secure. Passwords and credentials redacted.</span>
+        </div>
+      </section>
+
+      <!-- Restoring State -->
+      <section class="restoring-state" id="restoringState" hidden>
+        <div class="restoring-orb">
+          <div class="spinner-ring"></div>
+          <div class="spinner-core">↗</div>
+        </div>
+        <h2 class="restoring-title">Restoring Workspace…</h2>
+        <p class="restoring-subtext">Activating tab, focusing window & restoring scroll position</p>
+      </section>
+
+      <!-- Success State -->
+      <section class="success-state" id="successState" hidden>
+        <div class="success-orb">✓</div>
+        <h2 class="success-title">Back In The Flow</h2>
+        <p class="success-subtext">Workspace restored. You can continue right where you left off.</p>
+      </section>
+
+      <!-- Error State -->
+      <section class="error-state" id="errorState" hidden>
+        <div class="error-orb">!</div>
+        <h2 class="error-title" id="errorTitle">Couldn't restore workspace</h2>
+        <p class="error-subtext" id="errorSubtext">The original tab might be closed. You can still open the URL directly.</p>
+        <div class="actions">
+          <button type="button" id="retryBtn" class="btn btn-primary">
+            <span class="btn-text">Try Again</span>
+          </button>
+          <button type="button" id="openUrlBtn" class="btn btn-secondary">
+            <span class="btn-text">Open URL</span>
+          </button>
+        </div>
+      </section>
+    </main>
+
+    <!-- Footer -->
+    <footer class="app-footer">
+      <div class="footer-left">
+        <span class="footer-dot"></span>
+        <span class="footer-text">Flowback Engine</span>
+      </div>
+      <span class="footer-shortcut">Resume: ↵ Enter</span>
+    </footer>
+  </div>
+
+  <script src="popup.js" defer></script>
+</body>
+</html>
+

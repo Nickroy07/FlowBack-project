@@ -1,0 +1,40 @@
+# Dependencies
+node_modules/
+package-lock.json
+yarn.lock
+
+# Environment variables - NEVER commit API keys
+.env
+.env.*
+!.env.example
+.env.local
+.env.development.local
+.env.production.local
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Chrome extension build artifacts
+*.crx
+*.zip
+dist/
+
+# Temporary files
+tmp/
+temp/
+
+# Backend
+backend/node_modules/
+backend/.env

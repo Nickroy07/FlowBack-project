@@ -1,0 +1,31 @@
+{
+  "manifest_version": 3,
+  "name": "Flowback",
+  "version": "0.2.0",
+  "description": "AI-powered context recovery for interrupted work.",
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_popup": "popup/popup.html"
+  },
+  "permissions": [
+    "storage",
+    "tabs",
+    "windows"
+  ],
+  "host_permissions": [
+    "<all_urls>"
+  ],
+  "content_scripts": [
+    {
+      "matches": [
+        "<all_urls>"
+      ],
+      "js": [
+        "content.js"
+      ],
+      "run_at": "document_idle"
+    }
+  ]
+}

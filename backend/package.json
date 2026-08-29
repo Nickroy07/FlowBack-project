@@ -1,0 +1,20 @@
+{
+  "name": "flowback-backend",
+  "version": "0.2.0",
+  "description": "AI brain for Flowback Chrome Extension - working-context reconstruction engine",
+  "main": "server.js",
+  "type": "commonjs",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js",
+    "test": "node test.js"
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
